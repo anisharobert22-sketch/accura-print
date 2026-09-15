@@ -1,0 +1,18 @@
+# Gradle / Android
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+out/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Signing material — never in the repo
+*.jks
+*.p12
+*.b64
+*.pass

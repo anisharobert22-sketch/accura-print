@@ -1,0 +1,427 @@
+package ai.soulvai.accuraprint
+
+import android.Manifest
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.PorterDuff
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.View
+import android.widget.Button
+import android.widget.CheckBox
+import android.app.PendingIntent
+import android.content.IntentFilter
+import android.hardware.usb.UsbManager
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.TextView
+import android.widget.Toast
+import com.dantsu.escposprinter.connection.usb.UsbPrintersConnections
+import kotlin.concurrent.thread
+
+/**
+ * Setup and status screen.
+ *
+ * Laid out so the question you actually have — is it working? — is answered by
+ * the top of the screen before you read anything else. Configuration sits
+ * below that, and the warning card only appears when it applies.
+ */
+class MainActivity : Activity() {
+
+    private lateinit var statusDot: View
+    private lateinit var statusText: TextView
+    private lateinit var statusDetail: TextView
+    private lateinit var statusCounts: TextView
+    private lateinit var batteryCard: LinearLayout
+    private lateinit var updateCard: LinearLayout
+    private lateinit var updateText: TextView
+    private lateinit var printerIp: EditText
+    private lateinit var printerPort: EditText
+    private lateinit var connGroup: RadioGroup
+    private lateinit var connWifi: RadioButton
+    private lateinit var connBluetooth: RadioButton
+    private lateinit var connUsb: RadioButton
+    private lateinit var networkFields: LinearLayout
+    private lateinit var bluetoothFields: LinearLayout
+    private lateinit var bluetoothName: EditText
+    private lateinit var paperGroup: RadioGroup
+    private lateinit var paper80: RadioButton
+    private lateinit var paper58: RadioButton
+    private lateinit var bridgePort: EditText
+    private lateinit var loopback: CheckBox
+    private lateinit var bridgeUrlView: TextView
+    private lateinit var logView: TextView
+    private lateinit var versionText: TextView
+    private lateinit var btnStart: Button
+    private lateinit var btnStop: Button
+
+    private val ui = Handler(Looper.getMainLooper())
+
+    /**
+     * Held as a field so it can actually be cancelled — an un-cancelled
+     * self-reposting Runnable keeps the Activity alive after it is closed and
+     * wakes the device to redraw a screen nobody is looking at.
+     */
+    private val ticker = object : Runnable {
+        override fun run() {
+            refresh()
+            ui.postDelayed(this, 1500)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        BridgeLog.init(this)
+        setContentView(R.layout.activity_main)
+
+        statusDot = findViewById(R.id.statusDot)
+        statusText = findViewById(R.id.statusText)
+        statusDetail = findViewById(R.id.statusDetail)
+        statusCounts = findViewById(R.id.statusCounts)
+        batteryCard = findViewById(R.id.batteryCard)
+        updateCard = findViewById(R.id.updateCard)
+        updateText = findViewById(R.id.updateText)
+        printerIp = findViewById(R.id.printerIp)
+        printerPort = findViewById(R.id.printerPort)
+        bridgePort = findViewById(R.id.bridgePort)
+        loopback = findViewById(R.id.loopback)
+        bridgeUrlView = findViewById(R.id.bridgeUrl)
+        logView = findViewById(R.id.logView)
+        versionText = findViewById(R.id.versionText)
+
+        printerIp.setText(Prefs.printerIp(this))
+        printerPort.setText(Prefs.printerPort(this).toString())
+
+        connGroup = findViewById(R.id.connGroup)
+        connWifi = findViewById(R.id.connWifi)
+        connBluetooth = findViewById(R.id.connBluetooth)
+        connUsb = findViewById(R.id.connUsb)
+        networkFields = findViewById(R.id.networkFields)
+        bluetoothFields = findViewById(R.id.bluetoothFields)
+        bluetoothName = findViewById(R.id.bluetoothName)
+        paperGroup = findViewById(R.id.paperGroup)
+        paper80 = findViewById(R.id.paper80)
+        paper58 = findViewById(R.id.paper58)
+        when (Prefs.connectionType(this)) {
+            Prefs.CONN_BLUETOOTH -> connBluetooth.isChecked = true
+            Prefs.CONN_USB -> connUsb.isChecked = true
+            else -> connWifi.isChecked = true
+        }
+        bluetoothName.setText(Prefs.bluetoothName(this))
+        if (Prefs.paperWidthMm(this) == 58) paper58.isChecked = true else paper80.isChecked = true
+        showFieldsForConnection()
+        connGroup.setOnCheckedChangeListener { _, _ ->
+            showFieldsForConnection()
+            if (selectedConnection() == Prefs.CONN_BLUETOOTH) requestBluetoothPermissionIfNeeded()
+        }
+        bridgePort.setText(Prefs.bridgePort(this).toString())
+        loopback.isChecked = Prefs.loopbackOnly(this)
+        loopback.setOnCheckedChangeListener { _, _ -> bridgeUrlView.text = bridgeUrl() }
+
+        btnStart = findViewById(R.id.btnStart)
+        btnStop = findViewById(R.id.btnStop)
+        btnStart.setOnClickListener { saveAndStart() }
+        btnStop.setOnClickListener { stopBridge() }
+        findViewById<Button>(R.id.btnTest).setOnClickListener { testPrint() }
+        findViewById<Button>(R.id.btnCopy).setOnClickListener { copyBridgeUrl() }
+        findViewById<Button>(R.id.btnBattery).setOnClickListener { openBatterySettings() }
+        findViewById<Button>(R.id.btnUpdate).setOnClickListener {
+            // Hand the download to the browser. Installing from inside the app
+            // would need REQUEST_INSTALL_PACKAGES, which Google restricts to
+            // apps whose whole purpose is installing software.
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UpdateCheck.LATEST_PAGE)))
+            } catch (_: Exception) {
+                toast(UpdateCheck.LATEST_PAGE)
+            }
+        }
+
+        versionText.text = getString(R.string.version_line, appVersion())
+        bridgeUrlView.text = bridgeUrl()
+
+        findViewById<Button>(R.id.btnCheckUpdate).setOnClickListener { checkForUpdate() }
+        findViewById<Button>(R.id.btnCopyLog).setOnClickListener {
+            copyToClipboard("bridge log", BridgeLog.text())
+            toast(getString(R.string.toast_log_copied))
+        }
+
+        thread {
+            val addr = UpdateCheck.localAddress()
+            ui.post { lanAddress = addr; bridgeUrlView.text = bridgeUrl() }
+        }
+
+        requestNotificationPermissionIfNeeded()
+    }
+
+    /**
+     * On-demand update check.
+     *
+     * The service checks once a day, which is right for something that should
+     * stay quiet — but it means a newly published version could take 24 hours
+     * to surface, with no way to ask.
+     */
+    private fun checkForUpdate() {
+        toast(getString(R.string.checking))
+        thread {
+            val current = appVersion()
+            val r = UpdateCheck.fetch(current)
+            ui.post {
+                when {
+                    r == null -> toast(getString(R.string.check_failed))
+                    r.newer -> { BridgeState.updateAvailable = r.latest; refresh() }
+                    else -> { BridgeState.updateAvailable = null; refresh(); toast(getString(R.string.check_uptodate, current)) }
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ui.removeCallbacks(ticker)
+        ui.post(ticker)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ui.removeCallbacks(ticker)
+    }
+
+    /** Android 13+ will not show the foreground-service notification without this. */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+    }
+
+    // ── Actions ───────────────────────────────────────────────────────
+
+    private fun selectedConnection(): String = when {
+        connBluetooth.isChecked -> Prefs.CONN_BLUETOOTH
+        connUsb.isChecked -> Prefs.CONN_USB
+        else -> Prefs.CONN_WIFI
+    }
+
+    private fun selectedPaperMm(): Int = if (paper58.isChecked) 58 else 80
+
+    /** Only the fields that apply to the chosen connection are shown. */
+    private fun showFieldsForConnection() {
+        val conn = selectedConnection()
+        networkFields.visibility = if (conn == Prefs.CONN_WIFI) View.VISIBLE else View.GONE
+        bluetoothFields.visibility = if (conn == Prefs.CONN_BLUETOOTH) View.VISIBLE else View.GONE
+    }
+
+    private fun connectionLabel(conn: String): String = when (conn) {
+        Prefs.CONN_BLUETOOTH -> getString(R.string.conn_bluetooth)
+        Prefs.CONN_USB -> getString(R.string.conn_usb)
+        else -> getString(R.string.conn_wifi)
+    }
+
+    private fun requestBluetoothPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BLUETOOTH)
+        }
+    }
+
+    /**
+     * USB permission is a one-time system dialog only an Activity can raise.
+     * Returns true if it was raised (so the caller should stop and let the
+     * user answer), false if permission is already held or no printer is
+     * attached (the print attempt will then explain which).
+     */
+    private fun requestUsbPermissionIfNeeded(): Boolean {
+        val connection = UsbPrintersConnections.selectFirstConnected(this) ?: return false
+        val manager = getSystemService(USB_SERVICE) as? UsbManager ?: return false
+        if (manager.hasPermission(connection.device)) return false
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+        val intent = PendingIntent.getBroadcast(this, 0, Intent(ACTION_USB_PERMISSION), flags)
+        manager.requestPermission(connection.device, intent)
+        toast(getString(R.string.usb_permission_asked))
+        return true
+    }
+
+    private fun readSettings(): Triple<String, Int, Int> = Triple(
+        printerIp.text.toString().trim().ifEmpty { Prefs.DEF_PRINTER_IP },
+        printerPort.text.toString().trim().toIntOrNull() ?: Prefs.DEF_PRINTER_PORT,
+        bridgePort.text.toString().trim().toIntOrNull() ?: Prefs.DEF_BRIDGE_PORT,
+    )
+
+    private fun saveAndStart() {
+        val (ip, port, bport) = readSettings()
+        val conn = selectedConnection()
+        // The address only matters for a network printer; a Bluetooth or USB
+        // printer must not be blocked by whatever is left in that field.
+        if (conn == Prefs.CONN_WIFI && !looksLikeHost(ip)) { toast(getString(R.string.bad_ip)); return }
+        if ((conn == Prefs.CONN_WIFI && port !in 1..65535) || bport !in 1..65535) { toast(getString(R.string.bad_port)); return }
+        if (conn == Prefs.CONN_BLUETOOTH) requestBluetoothPermissionIfNeeded()
+        Prefs.save(
+            this, ip, port, bport, loopback.isChecked,
+            connectionType = conn,
+            bluetoothName = bluetoothName.text.toString(),
+            paperWidthMm = selectedPaperMm(),
+        )
+        bridgeUrlView.text = bridgeUrl()
+        // No stopService() first: that is asynchronous, and the resulting
+        // onDestroy could land after the new start command and tear down the
+        // server that had just been created. The service rebuilds on every
+        // start command instead, so this alone applies changed settings.
+        Prefs.setAutoStart(this, true)
+        val svc = Intent(this, PrintBridgeService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
+        toast(getString(R.string.toast_started, bport))
+        ui.postDelayed({ refresh() }, 400)
+    }
+
+    /** Permissive on purpose — hostnames are legitimate, gibberish is not. */
+    private fun looksLikeHost(s: String): Boolean =
+        s.isNotBlank() && s.length <= 253 && Regex("^[A-Za-z0-9.\\-]+$").matches(s)
+
+    private fun stopBridge() {
+        // Remember the choice: a reboot should not silently undo a deliberate stop.
+        Prefs.setAutoStart(this, false)
+        stopService(Intent(this, PrintBridgeService::class.java))
+        toast(getString(R.string.toast_stopped))
+        // Do not make the screen wait up to 1.5s to admit it stopped.
+        ui.postDelayed({ refresh() }, 300)
+    }
+
+    /**
+     * Talks straight to the printer, skipping the HTTP hop, so a failure here
+     * means the printer or the network rather than the bridge.
+     */
+    private fun testPrint() {
+        val (ip, port, bport) = readSettings()
+        val conn = selectedConnection()
+        // Save first, so the test uses exactly what the user is looking at —
+        // and so a bill arriving right after uses the same settings.
+        Prefs.save(this, ip, port, bport, loopback.isChecked,
+            connectionType = conn, bluetoothName = bluetoothName.text.toString(), paperWidthMm = selectedPaperMm())
+        if (conn == Prefs.CONN_BLUETOOTH) requestBluetoothPermissionIfNeeded()
+        if (conn == Prefs.CONN_USB && requestUsbPermissionIfNeeded()) return
+        val label = connectionLabel(conn)
+        thread {
+            val result = try {
+                // The same library path a real bill takes, through the shared
+                // queue so it can never interleave with a bill in progress.
+                Printers.printFormatted(this, Printers.testSlip(label), openDrawer = false, cut = true,
+                    onLog = { BridgeLog.append(it) })
+                getString(R.string.test_ok_generic, label)
+            } catch (e: Exception) {
+                getString(R.string.test_fail_generic, label, e.message ?: "unknown error")
+            }
+            BridgeLog.append(result)
+            ui.post { toast(result) }
+        }
+    }
+
+    /** Cached so the screen is not enumerating interfaces every 1.5s. */
+    private var lanAddress: String? = null
+
+    private fun bridgeUrl(): String {
+        val port = bridgePort.text.toString().trim().toIntOrNull() ?: Prefs.DEF_BRIDGE_PORT
+        if (loopback.isChecked) return "http://localhost:$port"
+        val host = lanAddress ?: return getString(R.string.url_unknown_host, port)
+        return "http://$host:$port"
+    }
+
+    private fun copyBridgeUrl() {
+        val url = bridgeUrl()
+        if (copyToClipboard("bridge url", url)) toast(getString(R.string.toast_copied, url))
+        else toast(url)
+    }
+
+    private fun copyToClipboard(label: String, value: String): Boolean = try {
+        (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText(label, value))
+        true
+    } catch (_: Exception) { false }
+
+    /**
+     * Battery optimisation is the one thing that silently kills a long-running
+     * service, and an app cannot exempt itself. Opening the settings list
+     * rather than prompting directly needs no extra permission and stays
+     * inside Play Store policy.
+     */
+    private fun openBatterySettings() {
+        val candidates = listOf(
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.fromParts("package", packageName, null)),
+        )
+        for (i in candidates) {
+            try { startActivity(i); return } catch (_: Exception) { /* try the next */ }
+        }
+        toast(getString(R.string.battery_no_screen))
+    }
+
+    private fun isBatteryExempt(): Boolean = try {
+        (getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
+    } catch (_: Exception) { false }
+
+    private fun appVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+    } catch (_: Exception) { "?" }
+
+    // ── Refresh ───────────────────────────────────────────────────────
+
+    private fun refresh() {
+        val colour = when (BridgeState.status) {
+            BridgeState.Status.RUNNING -> getColor(R.color.ok)
+            BridgeState.Status.FAILED  -> getColor(R.color.danger)
+            BridgeState.Status.STOPPED -> getColor(R.color.ink_faint)
+        }
+        statusText.text = when (BridgeState.status) {
+            BridgeState.Status.RUNNING -> getString(R.string.state_running)
+            BridgeState.Status.FAILED  -> getString(R.string.state_failed)
+            BridgeState.Status.STOPPED -> getString(R.string.state_stopped)
+        }
+        statusText.setTextColor(if (BridgeState.status == BridgeState.Status.FAILED) colour else getColor(R.color.ink))
+        statusDot.background?.setColorFilter(colour, PorterDuff.Mode.SRC_IN)
+
+        statusDetail.text = when (BridgeState.status) {
+            BridgeState.Status.RUNNING ->
+                getString(R.string.detail_running, BridgeState.boundTo ?: "?", BridgeState.printerTarget ?: "-")
+            BridgeState.Status.FAILED ->
+                BridgeState.lastError ?: getString(R.string.state_failed)
+            BridgeState.Status.STOPPED -> getString(R.string.detail_stopped)
+        }
+
+        statusCounts.visibility = if (BridgeState.okCount > 0 || BridgeState.failCount > 0) View.VISIBLE else View.GONE
+        statusCounts.text = getString(R.string.counts, BridgeState.okCount, BridgeState.failCount) +
+            (BridgeState.lastPrint?.let { "  ·  $it" } ?: "")
+
+        // The buttons said "Save & start" and "Stop" regardless of what was
+        // happening, so after stopping, the screen still offered Stop.
+        val running = BridgeState.status == BridgeState.Status.RUNNING
+        btnStart.text = getString(if (running) R.string.btn_restart else R.string.btn_start)
+        btnStop.isEnabled = running
+        btnStop.alpha = if (running) 1f else 0.45f
+
+        val update = BridgeState.updateAvailable
+        updateCard.visibility = if (update != null) View.VISIBLE else View.GONE
+        if (update != null) updateText.text = getString(R.string.update_available, update, appVersion())
+
+        batteryCard.visibility = if (isBatteryExempt()) View.GONE else View.VISIBLE
+
+        logView.text = BridgeLog.text().ifEmpty { getString(R.string.no_activity) }
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    companion object {
+        private const val REQ_BLUETOOTH = 41
+        private const val ACTION_USB_PERMISSION = "ai.soulvai.accuraprint.USB_PERMISSION"
+    }
+}

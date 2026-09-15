@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Accura Print</string>
+
+    <string name="section_printer">Printer</string>
+    <string name="section_bridge">Bridge</string>
+
+    <string name="label_connection">Connected by</string>
+    <string name="conn_wifi">Wi-Fi / LAN</string>
+    <string name="conn_bluetooth">Bluetooth</string>
+    <string name="conn_usb">USB cable</string>
+    <string name="label_bluetooth_name">Printer name (optional)</string>
+    <string name="hint_bluetooth_name">Leave empty to use the first paired printer</string>
+    <string name="label_paper">Paper width</string>
+    <string name="paper_80">80 mm (standard)</string>
+    <string name="paper_58">58 mm (small)</string>
+    <string name="test_ok_generic">Test slip printed over %1$s</string>
+    <string name="test_fail_generic">Could not print over %1$s — %2$s</string>
+    <string name="usb_permission_asked">Allow USB access in the dialog, then tap Test print again</string>
+    <string name="bt_permission_needed">Bluetooth permission is needed to reach the printer</string>
+    <string name="label_printer_ip">IP address</string>
+    <string name="label_printer_port">Port</string>
+    <string name="label_bridge_port">Listen on port</string>
+    <string name="label_loopback">This device only</string>
+    <string name="hint_loopback">Keeps the bridge unreachable from the rest of the network. Untick only if other devices need to print through this one.</string>
+    <string name="hint_test">Prints the same way a real bill does. If this works, bills from Accura will too.</string>
+    <string name="label_activity">Recent activity</string>
+    <string name="no_activity">Nothing yet.</string>
+
+    <string name="btn_start">Save &amp; start</string>
+    <string name="btn_restart">Save &amp; restart</string>
+    <string name="btn_stop">Stop</string>
+    <string name="btn_test">Test print</string>
+    <string name="btn_copy_url">Copy address</string>
+    <string name="btn_fix">Fix</string>
+    <string name="btn_get_update">Get it</string>
+    <string name="update_available">Version %1$s is available. You are on %2$s.</string>
+
+    <string name="state_running">Running</string>
+    <string name="state_stopped">Stopped</string>
+    <string name="state_failed">Not running</string>
+    <string name="detail_running">Listening on %1$s\nPrinting to %2$s</string>
+    <string name="detail_stopped">Press Save &amp; start to accept print jobs.</string>
+    <string name="counts">%1$d printed, %2$d failed</string>
+
+    <string name="toast_started">Bridge started on port %1$d</string>
+    <string name="toast_stopped">Bridge stopped</string>
+    <string name="toast_copied">Copied %1$s</string>
+    <string name="test_ok">Test slip sent to %1$s:%2$d</string>
+    <string name="test_fail">Could not reach %1$s:%2$d — %3$s</string>
+    <string name="version_line">Version %1$s</string>
+    <string name="btn_check_update">Check for updates</string>
+    <string name="btn_copy_log">Copy log</string>
+    <string name="toast_log_copied">Activity log copied</string>
+    <string name="checking">Checking…</string>
+    <string name="check_failed">Could not reach GitHub to check.</string>
+    <string name="check_uptodate">You are on the latest version (%1$s).</string>
+    <string name="url_unknown_host">http://&lt;this device\'s IP&gt;:%1$d</string>
+    <string name="bad_ip">Enter a valid printer address, e.g. 192.168.1.200</string>
+    <string name="bad_port">Ports must be between 1 and 65535.</string>
+
+    <string name="battery_warn">Battery optimisation is on for this app. Android may stop the bridge while you are trading.</string>
+    <string name="battery_no_screen">Could not open battery settings on this device — find it under Settings › Apps.</string>
+
+    <string name="notif_title">Print bridge running</string>
+    <string name="notif_title_failed">Print bridge is NOT running</string>
+    <string name="notif_starting">Starting…</string>
+    <string name="channel_name">Print bridge</string>
+    <string name="channel_desc">Keeps the printer connection available while Accura Print runs.</string>
+</resources>
