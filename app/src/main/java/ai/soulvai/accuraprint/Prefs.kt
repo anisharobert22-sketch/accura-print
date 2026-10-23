@@ -37,6 +37,24 @@ object Prefs {
     const val MIN_CUT_FEED_MM = 5
     const val MAX_CUT_FEED_MM = 60
 
+    /**
+     * Quiet time between the printer accepting the socket and the first byte
+     * going down it, in milliseconds.
+     *
+     * A network receipt printer goes deaf while its cutter runs, and discards
+     * whatever arrives in that window. At a real counter this ate the first
+     * two lines of every bill - the shop's logo and its name - while the
+     * address one line below printed perfectly, and it never touched the test
+     * slip, because a bill follows a cut and a test slip is printed cold.
+     *
+     * How long a cutter takes is per-model and unpublished, so this is a
+     * setting: if lines are still going missing, raise it. Too high only
+     * makes each bill slower by that much.
+     */
+    const val DEF_WARMUP_MS = 1200
+    const val MIN_WARMUP_MS = 0
+    const val MAX_WARMUP_MS = 5000
+
     fun printerIp(c: Context): String = p(c).getString("printerIp", DEF_PRINTER_IP)!!
     fun printerPort(c: Context): Int = p(c).getInt("printerPort", DEF_PRINTER_PORT)
     fun bridgePort(c: Context): Int = p(c).getInt("bridgePort", DEF_BRIDGE_PORT)
@@ -51,6 +69,7 @@ object Prefs {
     fun bluetoothName(c: Context): String = p(c).getString("bluetoothName", "")!!
     fun paperWidthMm(c: Context): Int = p(c).getInt("paperWidthMm", DEF_PAPER_MM)
     fun cutFeedMm(c: Context): Int = p(c).getInt("cutFeedMm", DEF_CUT_FEED_MM).coerceIn(MIN_CUT_FEED_MM, MAX_CUT_FEED_MM)
+    fun warmupMs(c: Context): Int = p(c).getInt("warmupMs", DEF_WARMUP_MS).coerceIn(MIN_WARMUP_MS, MAX_WARMUP_MS)
 
     /**
      * Whether the bridge should come back on its own after a reboot.
@@ -75,6 +94,7 @@ object Prefs {
         bluetoothName: String = bluetoothName(c),
         paperWidthMm: Int = paperWidthMm(c),
         cutFeedMm: Int = cutFeedMm(c),
+        warmupMs: Int = warmupMs(c),
     ) {
         p(c).edit()
             .putString("printerIp", ip)
@@ -85,6 +105,7 @@ object Prefs {
             .putString("bluetoothName", bluetoothName.trim())
             .putInt("paperWidthMm", if (paperWidthMm == 58) 58 else 80)
             .putInt("cutFeedMm", cutFeedMm.coerceIn(MIN_CUT_FEED_MM, MAX_CUT_FEED_MM))
+            .putInt("warmupMs", warmupMs.coerceIn(MIN_WARMUP_MS, MAX_WARMUP_MS))
             .apply()
     }
 

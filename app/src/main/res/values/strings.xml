@@ -11,6 +11,9 @@
     <string name="conn_usb">USB cable</string>
     <string name="label_bluetooth_name">Printer name (optional)</string>
     <string name="hint_bluetooth_name">Leave empty to use the first paired printer</string>
+    <string name="label_warmup">Printer warm-up (ms)</string>
+    <string name="hint_warmup">How long to wait after the printer answers before sending. A printer ignores everything sent while its cutter is still running, which is how the first lines of a bill go missing. Raise it if the top of the bill is being lost. 1200 suits most printers.</string>
+    <string name="bad_warmup">Warm-up must be between 0 and 5000 ms.</string>
     <string name="label_cut_feed">Cut position (mm)</string>
     <string name="hint_cut_feed">How far the paper feeds before cutting. Raise it if the cut lands inside the bill, lower it if each receipt has a long blank tail. 30 suits most printers.</string>
     <string name="bad_cut_feed">Cut position must be between 5 and 60 mm.</string>

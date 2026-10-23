@@ -64,6 +64,13 @@ object Printers {
             // sacrifice: if the printer is still settling and loses the first
             // line, it loses this one and not the shop's name. Costs ~3mm.
             val body = "[L]\n$text"
+            // The first real line of the job, in the log.
+            //
+            // Three wrong diagnoses were made from photographs of paper,
+            // because nothing recorded what the bridge was actually handed.
+            // One glance at this line answers "did the shop's name even leave
+            // the server" - which is where today should have started.
+            onLog("Job starts: ${text.lineSequence().firstOrNull { it.isNotBlank() }?.take(60) ?: "(empty)"}")
             try {
                 when {
                     openDrawer -> printer.printFormattedTextAndOpenCashBox(body, feed)
@@ -90,12 +97,19 @@ object Printers {
 
     // ── Connection factory ────────────────────────────────────────────
 
-    /** Attempts to reach the printer, and how long to wait between them. */
-    private const val CONNECT_ATTEMPTS = 4
-    private const val CONNECT_BACKOFF_MS = 600L
-
-    /** Quiet time between the socket opening and the first byte going down it. */
-    private const val SETTLE_MS = 400L
+    /**
+     * Attempts to reach the printer, and how long to wait between them.
+     *
+     * Sized for the thing being waited out: a cutter finishing, which takes a
+     * second or two. NOT a printer that is switched off. With a 5s connect
+     * timeout and four tries, a bill sent to a dead printer took 17 seconds
+     * to fail - against Accura's own 20-second limit, and seventeen seconds
+     * of nothing while a customer stands at the counter. Three tries at a
+     * 2.5s timeout rides out a cut and gives up in about eight.
+     */
+    private const val CONNECT_ATTEMPTS = 3
+    private const val CONNECT_BACKOFF_MS = 500L
+    private const val CONNECT_TIMEOUT_MS = 2500
 
     /**
      * Opens the printer and waits for it to be ready to listen.
@@ -124,7 +138,8 @@ object Printers {
             try {
                 val printer = EscPosPrinter(openConnection(context, onLog), paper.dpi, paper.widthMm, paper.columns)
                 if (attempt > 0) onLog("Printer answered on attempt ${attempt + 1}")
-                Thread.sleep(SETTLE_MS)
+                val warmup = Prefs.warmupMs(context).toLong()
+                if (warmup > 0) try { Thread.sleep(warmup) } catch (_: InterruptedException) {}
                 return printer
             } catch (e: Exception) {
                 last = e
@@ -143,7 +158,7 @@ object Printers {
             Prefs.CONN_USB -> usb(context)
             // Milliseconds, despite the README's example suggesting seconds —
             // the library passes this straight to Socket.connect.
-            else -> TcpConnection(Prefs.printerIp(context), Prefs.printerPort(context), 5000)
+            else -> TcpConnection(Prefs.printerIp(context), Prefs.printerPort(context), CONNECT_TIMEOUT_MS)
         }
 
     private fun bluetooth(context: Context, onLog: (String) -> Unit): DeviceConnection {
