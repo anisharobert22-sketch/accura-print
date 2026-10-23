@@ -53,17 +53,22 @@ object Printers {
     ) {
         val paper = paperFor(Prefs.paperWidthMm(context))
         PrinterQueue.exclusive {
-            val connection = openConnection(context, onLog)
-            val printer = EscPosPrinter(connection, paper.dpi, paper.widthMm, paper.columns)
+            val printer = connectWhenReady(context, paper, onLog)
             // How far the paper advances before the blade fires. It has to
             // clear the gap between the print head and the cutter, or the cut
             // lands inside the bill - see Prefs.DEF_CUT_FEED_MM.
             val feed = Prefs.cutFeedMm(context).toFloat()
+            // A leading blank line, on every job.
+            //
+            // Partly a top margin, which a receipt wants anyway. Mostly a
+            // sacrifice: if the printer is still settling and loses the first
+            // line, it loses this one and not the shop's name. Costs ~3mm.
+            val body = "[L]\n$text"
             try {
                 when {
-                    openDrawer -> printer.printFormattedTextAndOpenCashBox(text, feed)
-                    cut -> printer.printFormattedTextAndCut(text, feed)
-                    else -> printer.printFormattedText(text, feed)
+                    openDrawer -> printer.printFormattedTextAndOpenCashBox(body, feed)
+                    cut -> printer.printFormattedTextAndCut(body, feed)
+                    else -> printer.printFormattedText(body, feed)
                 }
             } finally {
                 // Always release the socket/RFCOMM channel, or the next job
@@ -84,6 +89,53 @@ object Printers {
         "[L]\n"
 
     // ── Connection factory ────────────────────────────────────────────
+
+    /** Attempts to reach the printer, and how long to wait between them. */
+    private const val CONNECT_ATTEMPTS = 4
+    private const val CONNECT_BACKOFF_MS = 600L
+
+    /** Quiet time between the socket opening and the first byte going down it. */
+    private const val SETTLE_MS = 400L
+
+    /**
+     * Opens the printer and waits for it to be ready to listen.
+     *
+     * A network receipt printer is a single-session device that goes deaf
+     * while its cutter runs. Connecting the instant the previous bill was cut
+     * produced both of the faults seen at a real counter:
+     *
+     *  - "Unable to connect to TCP device" - the printer refused the socket
+     *    outright, so the bill never printed and the till fell back to a
+     *    browser dialog that had nothing behind it.
+     *  - Bills printing with their first two lines missing - the shop's logo
+     *    and name, gone, on every bill. The socket was accepted but the
+     *    printer's input buffer was not ready, so the opening bytes went
+     *    nowhere. It only ever struck bills, never the test slip, because a
+     *    bill follows a cut and a test slip is printed cold - which is
+     *    exactly what made it look like a bug in the bill's markup.
+     *
+     * So: retry the connection rather than giving up on the first refusal,
+     * and once it is open, say nothing for a moment. A few hundred
+     * milliseconds is invisible beside the seconds a bill takes to print.
+     */
+    private fun connectWhenReady(context: Context, paper: Paper, onLog: (String) -> Unit): EscPosPrinter {
+        var last: Exception? = null
+        repeat(CONNECT_ATTEMPTS) { attempt ->
+            try {
+                val printer = EscPosPrinter(openConnection(context, onLog), paper.dpi, paper.widthMm, paper.columns)
+                if (attempt > 0) onLog("Printer answered on attempt ${attempt + 1}")
+                Thread.sleep(SETTLE_MS)
+                return printer
+            } catch (e: Exception) {
+                last = e
+                if (attempt < CONNECT_ATTEMPTS - 1) {
+                    onLog("Printer busy (${e.message ?: e.javaClass.simpleName}) — retrying")
+                    try { Thread.sleep(CONNECT_BACKOFF_MS) } catch (_: InterruptedException) {}
+                }
+            }
+        }
+        throw last ?: IllegalStateException("Could not reach the printer")
+    }
 
     private fun openConnection(context: Context, onLog: (String) -> Unit): DeviceConnection =
         when (Prefs.connectionType(context)) {
