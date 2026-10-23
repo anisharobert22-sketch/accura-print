@@ -26,6 +26,13 @@ Accura (browser) ──HTTP──▶ Accura Print (localhost) ──▶ printer 
    the cut lands inside the bill, leaving the footer on the next customer's
    receipt. 30 mm suits most printers; raise it if the cut is early, lower it
    if every bill has a long blank tail.
+   **Printer warm-up** is how long to wait after the printer answers before
+   sending anything. A receipt printer ignores everything it receives while
+   its cutter is still running, which is how the first lines of a bill — the
+   logo and the shop's name — go missing while the line below them prints
+   perfectly. It only ever affects bills, never the test slip, because a bill
+   follows a cut and a test slip is printed cold. 1200 ms suits most printers;
+   raise it if the top of the bill is still being lost.
 4. **Test print.** It prints exactly the way a bill does, so if this works, bills will.
 5. **Save & start.** An ongoing notification appears. It restarts itself after a reboot.
 

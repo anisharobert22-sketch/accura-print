@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.net.wifi.WifiManager
+import android.os.Handler
 import android.os.PowerManager
 
 /**
@@ -23,6 +24,13 @@ import android.os.PowerManager
 class PrintBridgeService : Service() {
 
     private var server: BridgeServer? = null
+    private var watchdog: Handler? = null
+    private val watchdogTick = object : Runnable {
+        override fun run() {
+            checkStillListening()
+            watchdog?.postDelayed(this, WATCHDOG_INTERVAL_MS)
+        }
+    }
     private var wakeLock: PowerManager.WakeLock? = null
     /**
      * Set before teardown so nothing re-posts the notification on the way out.
@@ -91,6 +99,8 @@ class PrintBridgeService : Service() {
             android.os.Handler(mainLooper).postDelayed({ updateNotification(BridgeState.summary()) }, 400)
         }
 
+        startWatchdog()
+        warnIfBatteryRestricted()
         checkForUpdate()
 
         // In LAN mode the request arrives from another device, so the radio has
@@ -102,8 +112,68 @@ class PrintBridgeService : Service() {
         return START_STICKY
     }
 
+    /**
+     * Brings the bridge back on its own when it has stopped listening.
+     *
+     * START_STICKY covers the service being reclaimed, and the boot receiver
+     * covers a reboot. Neither covers the case a counter actually hits: the
+     * process survives but the listening socket does not - Wi-Fi drops, the
+     * port is taken, a bind fails - and the app sits there in a FAILED or
+     * STOPPED state until somebody notices bills are not printing and opens
+     * it to press a button. That is a cashier discovering it mid-sale.
+     *
+     * A till cannot rely on being watched, so it checks itself.
+     */
+    private fun startWatchdog() {
+        if (watchdog == null) watchdog = Handler(mainLooper)
+        watchdog?.removeCallbacks(watchdogTick)
+        watchdog?.postDelayed(watchdogTick, WATCHDOG_INTERVAL_MS)
+    }
+
+    private fun checkStillListening() {
+        if (shuttingDown) return
+        if (!Prefs.autoStart(this)) return  // a deliberate Stop stays stopped
+        val s = server
+        if (s != null && s.isRunning() && BridgeState.status == BridgeState.Status.RUNNING) return
+        BridgeLog.append("Bridge was not listening — restarting it")
+        try {
+            s?.stop()
+            val fresh = BridgeServer(
+                context = applicationContext,
+                printerIp = Prefs.printerIp(this),
+                printerPort = Prefs.printerPort(this),
+                bridgePort = Prefs.bridgePort(this),
+                loopbackOnly = Prefs.loopbackOnly(this),
+                onLog = { line -> BridgeLog.append(line); updateNotification(BridgeState.summary()) },
+                power = powerGate,
+            )
+            fresh.start()
+            server = fresh
+        } catch (e: Exception) {
+            BridgeLog.append("Could not restart the bridge: ${e.message}")
+        }
+    }
+
+    /**
+     * Says so, in the log and the notification, when Android is allowed to
+     * stop us. Battery optimisation is the single most common reason a till
+     * stops printing halfway through a shift, and it fails silently: the app
+     * still looks installed, its settings are still there, and the only
+     * symptom is bills not coming out.
+     */
+    private fun warnIfBatteryRestricted() {
+        try {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                BridgeLog.append("Battery optimisation is ON — Android may stop the bridge. Open Accura Print and tap Fix.")
+            }
+        } catch (_: Exception) {}
+    }
+
     override fun onDestroy() {
         shuttingDown = true
+        watchdog?.removeCallbacks(watchdogTick)
+        watchdog = null
         server?.stop()
         server = null
         releaseLocks(force = true)
@@ -227,6 +297,8 @@ class PrintBridgeService : Service() {
         /** Backstop so a hung print cannot hold the CPU awake indefinitely. */
         const val LOCK_TIMEOUT_MS = 2 * 60 * 1000L
         const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
+        /** Often enough that a dropped bridge is back before the next customer. */
+        const val WATCHDOG_INTERVAL_MS = 30 * 1000L
         @Volatile private var lastUpdateCheck = 0L
     }
 }
