@@ -55,11 +55,15 @@ object Printers {
         PrinterQueue.exclusive {
             val connection = openConnection(context, onLog)
             val printer = EscPosPrinter(connection, paper.dpi, paper.widthMm, paper.columns)
+            // How far the paper advances before the blade fires. It has to
+            // clear the gap between the print head and the cutter, or the cut
+            // lands inside the bill - see Prefs.DEF_CUT_FEED_MM.
+            val feed = Prefs.cutFeedMm(context).toFloat()
             try {
                 when {
-                    openDrawer -> printer.printFormattedTextAndOpenCashBox(text, 20f)
-                    cut -> printer.printFormattedTextAndCut(text, 20f)
-                    else -> printer.printFormattedText(text, 20f)
+                    openDrawer -> printer.printFormattedTextAndOpenCashBox(text, feed)
+                    cut -> printer.printFormattedTextAndCut(text, feed)
+                    else -> printer.printFormattedText(text, feed)
                 }
             } finally {
                 // Always release the socket/RFCOMM channel, or the next job

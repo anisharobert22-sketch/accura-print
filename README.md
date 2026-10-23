@@ -20,6 +20,12 @@ Accura (browser) ──HTTP──▶ Accura Print (localhost) ──▶ printer 
    - **Bluetooth** — pair the printer in Android Settings first; leave the name blank to use the first paired printer.
    - **USB** — plug in via OTG; tap **Test print** once and allow USB access.
 3. Choose paper width (80 mm is the normal cafe bill).
+   **Cut position** is how far the paper feeds before the blade fires. The
+   cutter sits downstream of the print head, so the last lines printed are
+   still behind the blade when printing stops — feed less than that gap and
+   the cut lands inside the bill, leaving the footer on the next customer's
+   receipt. 30 mm suits most printers; raise it if the cut is early, lower it
+   if every bill has a long blank tail.
 4. **Test print.** It prints exactly the way a bill does, so if this works, bills will.
 5. **Save & start.** An ongoing notification appears. It restarts itself after a reboot.
 
