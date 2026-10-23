@@ -251,6 +251,23 @@
                     android:layout_height="wrap_content" android:text="@string/paper_58" android:textColor="@color/ink" />
             </RadioGroup>
 
+            <TextView style="@style/FieldLabel" android:text="@string/label_cut_feed" />
+
+            <EditText
+                android:id="@+id/cutFeed"
+                style="@style/Field"
+                android:hint="30"
+                android:inputType="number"
+                android:importantForAutofill="no" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/hint_cut_feed"
+                android:textColor="@color/ink_faint"
+                android:textSize="12sp" />
+
             <Button
                 android:id="@+id/btnTest"
                 android:layout_width="match_parent"

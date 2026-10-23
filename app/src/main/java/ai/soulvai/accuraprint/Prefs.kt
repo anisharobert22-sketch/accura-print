@@ -19,6 +19,24 @@ object Prefs {
     /** 80mm is the normal cafe bill; 58mm is the small portable printer. */
     const val DEF_PAPER_MM = 80
 
+    /**
+     * How far the paper advances before the cutter fires, in millimetres.
+     *
+     * The cutter sits downstream of the print head, so the last lines printed
+     * are still behind the blade when printing stops. Feed less than that gap
+     * and the cut lands in the middle of the bill: on a real TVS RP 3200 at
+     * 20mm the cut fell above "Thank you, visit again", and every receipt
+     * carried the previous customer's footer at the top of it.
+     *
+     * The gap differs by printer model and nobody publishes it, so this is a
+     * setting rather than a constant - a shop can nudge it without waiting
+     * for a new build. 30mm clears the models we have seen; too high only
+     * wastes a little paper, too low cuts into the bill.
+     */
+    const val DEF_CUT_FEED_MM = 30
+    const val MIN_CUT_FEED_MM = 5
+    const val MAX_CUT_FEED_MM = 60
+
     fun printerIp(c: Context): String = p(c).getString("printerIp", DEF_PRINTER_IP)!!
     fun printerPort(c: Context): Int = p(c).getInt("printerPort", DEF_PRINTER_PORT)
     fun bridgePort(c: Context): Int = p(c).getInt("bridgePort", DEF_BRIDGE_PORT)
@@ -32,6 +50,7 @@ object Prefs {
      */
     fun bluetoothName(c: Context): String = p(c).getString("bluetoothName", "")!!
     fun paperWidthMm(c: Context): Int = p(c).getInt("paperWidthMm", DEF_PAPER_MM)
+    fun cutFeedMm(c: Context): Int = p(c).getInt("cutFeedMm", DEF_CUT_FEED_MM).coerceIn(MIN_CUT_FEED_MM, MAX_CUT_FEED_MM)
 
     /**
      * Whether the bridge should come back on its own after a reboot.
@@ -55,6 +74,7 @@ object Prefs {
         connectionType: String = connectionType(c),
         bluetoothName: String = bluetoothName(c),
         paperWidthMm: Int = paperWidthMm(c),
+        cutFeedMm: Int = cutFeedMm(c),
     ) {
         p(c).edit()
             .putString("printerIp", ip)
@@ -64,6 +84,7 @@ object Prefs {
             .putString("connectionType", connectionType)
             .putString("bluetoothName", bluetoothName.trim())
             .putInt("paperWidthMm", if (paperWidthMm == 58) 58 else 80)
+            .putInt("cutFeedMm", cutFeedMm.coerceIn(MIN_CUT_FEED_MM, MAX_CUT_FEED_MM))
             .apply()
     }
 

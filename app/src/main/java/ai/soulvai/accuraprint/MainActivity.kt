@@ -58,6 +58,7 @@ class MainActivity : Activity() {
     private lateinit var paperGroup: RadioGroup
     private lateinit var paper80: RadioButton
     private lateinit var paper58: RadioButton
+    private lateinit var cutFeed: EditText
     private lateinit var bridgePort: EditText
     private lateinit var loopback: CheckBox
     private lateinit var bridgeUrlView: TextView
@@ -113,6 +114,7 @@ class MainActivity : Activity() {
         paperGroup = findViewById(R.id.paperGroup)
         paper80 = findViewById(R.id.paper80)
         paper58 = findViewById(R.id.paper58)
+        cutFeed = findViewById(R.id.cutFeed)
         when (Prefs.connectionType(this)) {
             Prefs.CONN_BLUETOOTH -> connBluetooth.isChecked = true
             Prefs.CONN_USB -> connUsb.isChecked = true
@@ -120,6 +122,7 @@ class MainActivity : Activity() {
         }
         bluetoothName.setText(Prefs.bluetoothName(this))
         if (Prefs.paperWidthMm(this) == 58) paper58.isChecked = true else paper80.isChecked = true
+        cutFeed.setText(Prefs.cutFeedMm(this).toString())
         showFieldsForConnection()
         connGroup.setOnCheckedChangeListener { _, _ ->
             showFieldsForConnection()
@@ -214,6 +217,9 @@ class MainActivity : Activity() {
 
     private fun selectedPaperMm(): Int = if (paper58.isChecked) 58 else 80
 
+    /** Blank means "leave it as it was", not "zero" - an empty box must never jam the blade into the bill. */
+    private fun enteredCutFeedMm(): Int = cutFeed.text.toString().trim().toIntOrNull() ?: Prefs.cutFeedMm(this)
+
     /** Only the fields that apply to the chosen connection are shown. */
     private fun showFieldsForConnection() {
         val conn = selectedConnection()
@@ -265,12 +271,14 @@ class MainActivity : Activity() {
         // printer must not be blocked by whatever is left in that field.
         if (conn == Prefs.CONN_WIFI && !looksLikeHost(ip)) { toast(getString(R.string.bad_ip)); return }
         if ((conn == Prefs.CONN_WIFI && port !in 1..65535) || bport !in 1..65535) { toast(getString(R.string.bad_port)); return }
+        if (enteredCutFeedMm() !in Prefs.MIN_CUT_FEED_MM..Prefs.MAX_CUT_FEED_MM) { toast(getString(R.string.bad_cut_feed)); return }
         if (conn == Prefs.CONN_BLUETOOTH) requestBluetoothPermissionIfNeeded()
         Prefs.save(
             this, ip, port, bport, loopback.isChecked,
             connectionType = conn,
             bluetoothName = bluetoothName.text.toString(),
             paperWidthMm = selectedPaperMm(),
+            cutFeedMm = enteredCutFeedMm(),
         )
         bridgeUrlView.text = bridgeUrl()
         // No stopService() first: that is asynchronous, and the resulting
@@ -307,7 +315,8 @@ class MainActivity : Activity() {
         // Save first, so the test uses exactly what the user is looking at —
         // and so a bill arriving right after uses the same settings.
         Prefs.save(this, ip, port, bport, loopback.isChecked,
-            connectionType = conn, bluetoothName = bluetoothName.text.toString(), paperWidthMm = selectedPaperMm())
+            connectionType = conn, bluetoothName = bluetoothName.text.toString(), paperWidthMm = selectedPaperMm(),
+            cutFeedMm = enteredCutFeedMm())
         if (conn == Prefs.CONN_BLUETOOTH) requestBluetoothPermissionIfNeeded()
         if (conn == Prefs.CONN_USB && requestUsbPermissionIfNeeded()) return
         val label = connectionLabel(conn)
